@@ -1,0 +1,26 @@
+watchlist:
+  US:
+    - AAPL
+    - MSFT
+    - TSLA
+    - NVDA
+    - AMD
+  TW:
+    - "2330"
+    - "2317"
+    - "2454"
+
+signals:
+  ma_crossover: [20, 60, 120]
+  volume_spike_ratio: 2.0
+  rsi_overbought: 80
+  rsi_oversold: 20
+  institutional_threshold_tw: 5000
+  margin_change_pct: 5
+
+notification:
+  sensitivity: medium
+  quiet_hours:
+    start: "00:00"
+    end: "07:00"
+  priority_filter: "MEDIUM"
