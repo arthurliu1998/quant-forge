@@ -62,10 +62,11 @@ Record every trade decision:
 
 ```bash
 python3 -c "
-from quantforge.trajectory import TradeTrajectory
-t = TradeTrajectory('{{TRAJECTORY_PATH}}')
-t.record(symbol='XXX', direction='long/short', signal_type='...',
-         diagnostic_code='SIG-XXX', entry_price=0, status='open')
+from quantforge.trajectory import init_trajectory, record_decision
+init_trajectory('{{TRAJECTORY_PATH}}')
+record_decision('{{TRAJECTORY_PATH}}', symbol='XXX', direction='long/short',
+                signal_type='...', diagnostic_code='SIG-XXX',
+                entry_price=0, status='open')
 "
 ```
 
@@ -134,13 +135,10 @@ When running `/quantforge scan full`, follow this procedure:
 
 ```bash
 python3 -c "
-from quantforge.config import load_config
-from quantforge.monitor.scanner import WatchlistScanner
-config = load_config()
-scanner = WatchlistScanner(config)
-signals = scanner.scan_all()
-for s in sorted(signals, key=lambda x: x.priority):
-    print(f'[{s.priority}] {s.symbol}: {s.message} ({s.direction})')
+from quantforge.scanner import QuantScanner
+scanner = QuantScanner()
+# Use scanner.score_stock(symbol, market, ohlcv, ...) for each watchlist symbol
+# See QuantScanner API for full parameter list
 if not signals:
     print('No signals detected across watchlist')
 "

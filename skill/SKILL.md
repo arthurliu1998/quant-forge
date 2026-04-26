@@ -69,18 +69,14 @@ Spawn Technical + Market + Risk. Analyze → synthesize → report.
 
 ## Quick Watchlist Scan (`scan`)
 
-Run `WatchlistScanner.scan_all()` across all symbols in config watchlist.
-Output detected signals sorted by priority. No multi-agent analysis — fast check only.
+Run `QuantScanner.score_stock()` across all symbols in config watchlist.
+Output scored signals sorted by quant score. No multi-agent analysis — fast check only.
 
 ```bash
 python3 -c "
-from quantforge.config import load_config
-from quantforge.monitor.scanner import WatchlistScanner
-config = load_config()
-scanner = WatchlistScanner(config)
-signals = scanner.scan_all()
-for s in sorted(signals, key=lambda x: x.priority):
-    print(f'[{s.priority}] {s.symbol}: {s.message} ({s.direction})')
+from quantforge.scanner import QuantScanner
+scanner = QuantScanner()
+# Score each stock with available data (see QuantScanner.score_stock API)
 "
 ```
 
@@ -105,13 +101,9 @@ Scans all watchlist symbols, then launches **parallel multi-agent analysis** for
 
 ```bash
 python3 -c "
-from quantforge.config import load_config
-from quantforge.monitor.scanner import WatchlistScanner
-config = load_config()
-scanner = WatchlistScanner(config)
-signals = scanner.scan_all()
-for s in sorted(signals, key=lambda x: x.priority):
-    print(f'[{s.priority}] {s.symbol}: {s.message} ({s.direction})')
+from quantforge.scanner import QuantScanner
+scanner = QuantScanner()
+# Score each stock with available data (see QuantScanner.score_stock API)
 "
 ```
 
@@ -232,15 +224,16 @@ Key rules:
 Record every trade decision via:
 ```bash
 python3 -c "
-from quantforge.trajectory import TradeTrajectory
-t = TradeTrajectory('{{TRAJECTORY_PATH}}')
-t.record(symbol='XXX', direction='long/short', signal_type='technical/flow/...',
-         diagnostic_code='SIG-XXX', entry_price=0, exit_price=0,
-         pnl_pct=0, status='open/closed/stopped')
+from quantforge.trajectory import init_trajectory, record_decision
+init_trajectory('{{TRAJECTORY_PATH}}')
+record_decision('{{TRAJECTORY_PATH}}', symbol='XXX', direction='long/short',
+                signal_type='technical/flow/...', diagnostic_code='SIG-XXX',
+                entry_price=0, exit_price=0, pnl_pct=0,
+                status='open/closed/stopped')
 "
 ```
 
-View history: `t.query('summary')` or `t.query('by_diagnostic')`
+View history: `from quantforge.trajectory import get_summary; get_summary('{{TRAJECTORY_PATH}}')`
 
 ## Experience System Integration
 

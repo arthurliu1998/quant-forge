@@ -128,9 +128,9 @@ python3 -c "from quantforge.data.fetch_tw import fetch_tw_institutional; print(f
 # Compute indicators
 python3 -c "from quantforge.analysis.indicators import compute_all; from quantforge.data.fetch_us import fetch_ohlcv; print(compute_all(fetch_ohlcv('AAPL')))"
 
-# Run signal scan
-python3 -c "from quantforge.signals.engine import detect_signals; from quantforge.data.fetch_us import fetch_ohlcv; print(detect_signals(fetch_ohlcv('AAPL')))"
+# Score a stock using the full factor pipeline
+python3 -c "from quantforge.scanner import QuantScanner; scanner = QuantScanner()"
 
 # Backtest
-python3 -c "from quantforge.backtester import Backtester; b = Backtester(); print(b.run('AAPL', 'rsi_oversold'))"
+python3 -c "from quantforge.backtest.engine import BacktestEngine; engine = BacktestEngine(market='US')"
 ```

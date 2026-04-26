@@ -113,7 +113,7 @@ Each entry includes: what you observed → possible cause → how to confirm →
 ### BHV-04: Cut Winner Short, Held Loser Long
 | Possible Cause | How to Confirm | Lesson |
 |---|---|---|
-| Loss aversion (prospect theory) | Average winning hold time < average losing hold time | Use `trade_analytics.py` to detect this pattern; enforce symmetric rules |
+| Loss aversion (prospect theory) | Average winning hold time < average losing hold time | Use `behavioral/tracker.py` to detect this pattern (BHV-04); enforce symmetric rules |
 | No trailing stop system | Exited winners manually but let losers "recover" | Automate: trailing stop for winners, hard stop for losers |
 
 ---
