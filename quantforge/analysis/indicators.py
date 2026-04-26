@@ -65,6 +65,24 @@ def compute_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     return (volume * direction).cumsum()
 
 
+def compute_adx(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    high = df["High"]
+    low = df["Low"]
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    atr = compute_atr(df, period)
+    atr_safe = atr.replace(0, np.nan)
+    plus_di = 100 * plus_dm.rolling(window=period).mean() / atr_safe
+    minus_di = 100 * minus_dm.rolling(window=period).mean() / atr_safe
+    di_sum = plus_di + minus_di
+    di_sum_safe = di_sum.replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / di_sum_safe
+    adx = dx.rolling(window=period).mean()
+    return adx
+
+
 def compute_all(df: pd.DataFrame) -> dict:
     close = df["Close"]
     macd, macd_signal, macd_hist = compute_macd(close)
@@ -80,6 +98,7 @@ def compute_all(df: pd.DataFrame) -> dict:
         "k": k, "d": d,
         "bb_upper": bb_upper, "bb_mid": bb_mid, "bb_lower": bb_lower,
         "atr": compute_atr(df),
+        "adx": compute_adx(df),
         "vol_ratio_5d": compute_volume_ratio(df["Volume"], 5),
         "vol_ratio_20d": compute_volume_ratio(df["Volume"], 20),
         "obv": compute_obv(close, df["Volume"]),

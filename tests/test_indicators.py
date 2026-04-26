@@ -75,6 +75,22 @@ class TestVolumeRatio:
         assert (valid > 0).all()
 
 
+def test_compute_adx():
+    from quantforge.analysis.indicators import compute_adx
+    np.random.seed(123)
+    n = 60
+    close = 100 + np.cumsum(np.random.randn(n) * 2)
+    df = pd.DataFrame({
+        "High": close + abs(np.random.randn(n)) * 1.5,
+        "Low": close - abs(np.random.randn(n)) * 1.5,
+        "Close": close,
+    })
+    adx = compute_adx(df, period=14)
+    assert len(adx) == len(df)
+    assert not adx.iloc[-1:].isna().any()
+    assert 0 <= adx.iloc[-1] <= 100
+
+
 class TestComputeAll:
     def test_compute_all_returns_dict(self, sample_ohlcv):
         result = compute_all(sample_ohlcv)
