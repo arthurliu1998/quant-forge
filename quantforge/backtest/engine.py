@@ -3,20 +3,23 @@
 Simulates trading over historical data using the QuantForge factor pipeline.
 Applies realistic costs, respects risk limits, and produces analytics.
 """
+import asyncio
 import pandas as pd
 import numpy as np
 from quantforge.backtest.cost_model import CostModel
 from quantforge.backtest.analytics import compute_metrics, BacktestMetrics
-from quantforge.analysis.indicators import compute_atr
+from quantforge.analysis.indicators import compute_atr, compute_all
 
 
 class BacktestEngine:
     def __init__(self, market: str = "US", cost_model: CostModel = None,
-                 atr_stop_mult: float = 2.0, atr_target_mult: float = 3.0):
+                 atr_stop_mult: float = 2.0, atr_target_mult: float = 3.0,
+                 llm_filter=None):
         self.market = market
         self.costs = cost_model or CostModel()
         self.atr_stop_mult = atr_stop_mult
         self.atr_target_mult = atr_target_mult
+        self.llm_filter = llm_filter
 
     def run(self, df: pd.DataFrame, signals: list[dict],
             initial_capital: float = 100000) -> BacktestMetrics:
@@ -77,3 +80,32 @@ class BacktestEngine:
 
         trading_days = len(df)
         return compute_metrics(trade_returns, trading_days)
+
+    async def run_async(self, df: pd.DataFrame, signals: list[dict],
+                        initial_capital: float = 100000) -> BacktestMetrics:
+        """Run backtest with optional LLM signal filtering.
+
+        Same as run() but supports async LLM filter. If no llm_filter
+        is configured, behaves identically to run().
+
+        Args:
+            df: OHLCV DataFrame
+            signals: list of {index: int, direction: "long"/"short", score: float}
+            initial_capital: starting capital
+
+        Returns:
+            BacktestMetrics with full performance analysis
+        """
+        if df.empty or not signals:
+            return compute_metrics([], 0)
+
+        filtered_signals = signals
+        if self.llm_filter:
+            indicators = compute_all(df)
+            filtered_signals = await self.llm_filter.filter_signals(
+                df, signals, indicators
+            )
+            if not filtered_signals:
+                return compute_metrics([], len(df))
+
+        return self.run(df, filtered_signals, initial_capital)
