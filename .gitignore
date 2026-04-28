@@ -8,8 +8,8 @@ config.yaml
 *.db
 *.sqlite
 *.sqlite3
-data/
-!data/.gitkeep
+/data/
+!/data/.gitkeep
 runs/
 backups/
 logs/

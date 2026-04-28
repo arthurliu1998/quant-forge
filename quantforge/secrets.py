@@ -16,6 +16,7 @@ if os.path.exists(_ENV_PATH):
 class SecretManager:
     SECRETS = frozenset({
         "ANTHROPIC_API_KEY", "GOOGLE_AI_API_KEY",
+        "AMD_LLM_GATEWAY_KEY", "AMD_LLM_GATEWAY_URL",
         "ALPACA_DATA_KEY", "ALPACA_DATA_SECRET",
         "ALPACA_TRADE_KEY", "ALPACA_TRADE_SECRET",
         "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",

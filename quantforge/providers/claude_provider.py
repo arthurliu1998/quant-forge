@@ -18,17 +18,28 @@ class ClaudeProvider(LLMProvider):
         if self._client is None:
             try:
                 import anthropic
-                key = SecretManager.get("ANTHROPIC_API_KEY")
-                if not key:
+                # Support AMD LLM Gateway or direct Anthropic API
+                amd_key = SecretManager.get("AMD_LLM_GATEWAY_KEY")
+                anthropic_key = SecretManager.get("ANTHROPIC_API_KEY")
+                if amd_key:
+                    base_url = SecretManager.get("AMD_LLM_GATEWAY_URL") or "https://llm-api.amd.com/Anthropic"
+                    self._client = anthropic.Anthropic(
+                        api_key="amd-gateway",
+                        base_url=base_url,
+                        default_headers={"Ocp-Apim-Subscription-Key": amd_key},
+                    )
+                elif anthropic_key:
+                    self._client = anthropic.Anthropic(api_key=anthropic_key)
+                else:
                     return None
-                self._client = anthropic.Anthropic(api_key=key)
             except ImportError:
                 logger.warning("anthropic package not installed")
                 return None
         return self._client
 
     def is_available(self) -> bool:
-        return SecretManager.is_configured("ANTHROPIC_API_KEY")
+        return (SecretManager.is_configured("ANTHROPIC_API_KEY")
+                or SecretManager.is_configured("AMD_LLM_GATEWAY_KEY"))
 
     async def analyze(self, role_prompt: str, data: dict) -> dict:
         client = self._get_client()
