@@ -19,11 +19,12 @@ from quantforge.providers.base import LLMProvider
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are a quantitative trading signal evaluator. You must judge ONLY "
-    "from the technical data provided. Do NOT attempt to identify the stock, "
-    "time period, or use any external knowledge. Base your decision solely "
-    "on the indicator values and price trend.\n\n"
-    "Respond with ONLY a JSON object, no other text:\n"
+    "You are a quantitative trading signal evaluator. Judge ONLY from the "
+    "technical data provided. Do NOT identify the stock or use external "
+    "knowledge.\n\n"
+    "CRITICAL: Your entire response must be a single JSON object. "
+    "No explanation, no markdown, no text before or after the JSON.\n\n"
+    "Required format:\n"
     '{"confidence": <0-100>, "action": "ENTER" or "SKIP", '
     '"reason": "<one sentence>"}'
 )
@@ -137,9 +138,19 @@ class BacktestLLMFilter:
                     cached=True,
                 )
 
-        # Call LLM
-        response = await self.provider.analyze(SYSTEM_PROMPT, prompt_data)
-        verdict = self._parse_response(response)
+        # Call LLM with retry
+        verdict = None
+        for attempt in range(3):
+            try:
+                response = await self.provider.analyze(SYSTEM_PROMPT, prompt_data)
+                verdict = self._parse_response(response)
+                break
+            except Exception as e:
+                logger.warning("LLM call failed (attempt %d): %s", attempt + 1, e)
+                if attempt < 2:
+                    await asyncio.sleep(2 ** (attempt + 1))  # exponential backoff
+        if verdict is None:
+            verdict = LLMSignalVerdict(action="SKIP", confidence=0, reason="API error")
 
         # Store in cache
         if self._cache is not None:
@@ -208,14 +219,32 @@ class BacktestLLMFilter:
         content = response.get("content", "")
 
         # Try to extract JSON from the response
+        parsed = None
+        text = content.strip()
+        # Strategy 1: direct parse (response is pure JSON)
         try:
-            # Handle case where LLM wraps JSON in markdown code block
-            text = content.strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-                text = text.rsplit("```", 1)[0]
-            parsed = json.loads(text.strip())
-        except (json.JSONDecodeError, IndexError):
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Strategy 2: extract from markdown code block
+        if parsed is None and "```" in text:
+            try:
+                block = text.split("```", 2)[1]
+                if block.startswith("json"):
+                    block = block[4:]
+                parsed = json.loads(block.strip())
+            except (json.JSONDecodeError, IndexError, ValueError):
+                pass
+        # Strategy 3: find JSON object anywhere in the text
+        if parsed is None:
+            import re
+            match = re.search(r'\{[^{}]*"action"\s*:\s*"[^"]+?"[^{}]*\}', text)
+            if match:
+                try:
+                    parsed = json.loads(match.group())
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        if parsed is None:
             logger.warning("LLM returned non-JSON response, defaulting to SKIP")
             return LLMSignalVerdict(action="SKIP", confidence=0, reason="parse error")
 
