@@ -1,4 +1,8 @@
-"""AnalysisPipeline: orchestrates signal -> scoring -> LLM -> report -> notify."""
+"""AnalysisPipeline: orchestrates signal -> scoring -> LLM -> report -> notify.
+
+Includes multi-mode strategy recommendation (TREND_FOLLOW / HIGHVOL_BREAKOUT /
+WHEEL / CASH) based on regime and annualized volatility.
+"""
 import asyncio
 import logging
 from typing import Optional
@@ -7,6 +11,7 @@ from quantforge.core.models import QuantSignal, Regime
 from quantforge.monitor.report_builder import ReportBuilder
 from quantforge.monitor.report_store import ReportStore
 from quantforge.signals.engine import Signal
+from quantforge.strategy.multimode import determine_mode, compute_annualized_vol
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +93,9 @@ class AnalysisPipeline:
                 logger.warning("Could not score %s -- skipping", signal.symbol)
                 return
 
+            # Multi-mode strategy recommendation
+            mode, mode_reason = self._recommend_mode(signal.symbol, market)
+
             llm_result = None
             if self.llm and self.llm.has_providers():
                 try:
@@ -97,16 +105,19 @@ class AnalysisPipeline:
                         "quant_score": quant_signal.quant_score,
                         "regime": quant_signal.regime.value,
                         "signal_level": quant_signal.signal_level,
+                        "recommended_mode": mode,
+                        "mode_reason": mode_reason,
                     })
                 except Exception as e:
                     logger.warning("LLM analysis failed: %s", type(e).__name__)
 
             summary, full = ReportBuilder.build_signal(
-                quant_signal, llm_result, trigger=signal.type)
+                quant_signal, llm_result, trigger=signal.type,
+                mode=mode, mode_reason=mode_reason)
             self.report_store.save("signal", signal.symbol, full)
             self.notifier.send_text(summary)
-            logger.info("Analysis complete for %s: %s",
-                        signal.symbol, quant_signal.signal_level)
+            logger.info("Analysis complete for %s: %s (mode: %s)",
+                        signal.symbol, quant_signal.signal_level, mode)
 
     async def run_briefing(self, briefing_type: str) -> None:
         """Generate scheduled briefing for all watchlist symbols."""
@@ -117,10 +128,13 @@ class AnalysisPipeline:
             all_symbols += [(s, "TW") for s in watchlist.get("TW", [])]
 
             signals = []
+            mode_recs = {}
             for symbol, market in all_symbols:
                 qs = self._score_symbol(symbol, market)
                 if qs:
                     signals.append(qs)
+                    mode, reason = self._recommend_mode(symbol, market)
+                    mode_recs[symbol] = {"mode": mode, "reason": reason}
 
             regime = signals[0].regime if signals else Regime.NEUTRAL
             vix = 15.0
@@ -134,7 +148,8 @@ class AnalysisPipeline:
                         "vix": vix,
                         "signals": [
                             {"symbol": s.symbol, "score": s.quant_score,
-                             "level": s.signal_level}
+                             "level": s.signal_level,
+                             "mode": mode_recs.get(s.symbol, {}).get("mode", "")}
                             for s in signals
                         ],
                     })
@@ -142,7 +157,8 @@ class AnalysisPipeline:
                     logger.warning("LLM briefing failed: %s", type(e).__name__)
 
             summary, full = ReportBuilder.build_briefing(
-                briefing_type, signals, regime, vix, llm_result)
+                briefing_type, signals, regime, vix, llm_result,
+                mode_recs=mode_recs)
             self.report_store.save("briefing", briefing_type, full)
             self.notifier.send_text(summary)
             logger.info("Briefing %s complete", briefing_type)
@@ -156,6 +172,8 @@ class AnalysisPipeline:
             if quant_signal is None:
                 return
 
+            mode, mode_reason = self._recommend_mode(symbol, market)
+
             llm_result = None
             if self.llm and self.llm.has_providers():
                 try:
@@ -165,12 +183,15 @@ class AnalysisPipeline:
                         "quant_score": quant_signal.quant_score,
                         "regime": quant_signal.regime.value,
                         "signal_level": quant_signal.signal_level,
+                        "recommended_mode": mode,
+                        "mode_reason": mode_reason,
                     })
                 except Exception as e:
                     logger.warning("LLM recalc failed: %s", type(e).__name__)
 
             summary, full = ReportBuilder.build_signal(
-                quant_signal, llm_result, trigger=f"recalc:{trigger}")
+                quant_signal, llm_result, trigger=f"recalc:{trigger}",
+                mode=mode, mode_reason=mode_reason)
             self.report_store.save("recalc", symbol, full)
             self.notifier.send_text(summary)
 
@@ -178,3 +199,30 @@ class AnalysisPipeline:
         """Detect if symbol is US or TW based on watchlist config."""
         tw_list = self.config.get("watchlist", {}).get("TW", [])
         return "TW" if symbol in tw_list else "US"
+
+    def _recommend_mode(self, symbol: str, market: str = "US") -> tuple[str, str]:
+        """Recommend a multi-mode strategy for the symbol.
+
+        Returns (mode, reason) based on current regime and annualized volatility.
+        """
+        try:
+            import pandas as pd
+            ohlcv = self._get_data_provider().get_ohlcv(symbol, period="6mo")
+            if ohlcv.empty or len(ohlcv) < 60:
+                return "CASH", "Insufficient data"
+
+            regime = self.regime_detector.detect_from_data(ohlcv)
+            ann_vol = compute_annualized_vol(ohlcv)
+            latest_vol = float(ann_vol.iloc[-1]) if not pd.isna(ann_vol.iloc[-1]) else 0.25
+            mode = determine_mode(regime, latest_vol)
+
+            reasons = {
+                "TREND_FOLLOW": f"Bull trend, vol {latest_vol:.0%} -- trail 3x ATR",
+                "HIGHVOL_BREAKOUT": f"Bull + high vol {latest_vol:.0%} -- trail 4x ATR, inverse-vol sizing",
+                "WHEEL": f"Sideways ({regime.value}), vol {latest_vol:.0%} -- sell CSP/CC for income",
+                "CASH": f"Bear/crisis ({regime.value}) -- no new trades",
+            }
+            return mode, reasons.get(mode, mode)
+        except Exception as e:
+            logger.warning("Mode recommendation failed for %s: %s", symbol, type(e).__name__)
+            return "CASH", "Error computing mode"
