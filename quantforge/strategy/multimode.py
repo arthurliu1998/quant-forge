@@ -23,7 +23,12 @@ from dataclasses import dataclass, field
 from quantforge.analysis.indicators import compute_atr, compute_adx, compute_ma
 from quantforge.backtest.cost_model import CostModel
 from quantforge.core.models import Regime
-from quantforge.pricing.bsm import bsm_put_price, bsm_call_price
+from quantforge.pricing.bsm import (
+    bsm_put_price, bsm_call_price,
+    bates_put_price, bates_call_price,
+    heston_put_price, heston_call_price,
+    svi_put_price, svi_call_price,
+)
 from quantforge.regime.detector import RegimeDetector
 
 
@@ -206,6 +211,13 @@ class MultiModeStrategy:
         Options commission per contract.
     """
 
+    _PRICERS = {
+        "bsm":    (bsm_put_price, bsm_call_price),
+        "bates":  (bates_put_price, bates_call_price),
+        "heston": (heston_put_price, heston_call_price),
+        "svi":    (svi_put_price, svi_call_price),
+    }
+
     def __init__(
         self,
         vol_threshold: float = 0.45,
@@ -223,6 +235,7 @@ class MultiModeStrategy:
         wheel_otm: float = 0.10,
         wheel_premium_discount: float = 0.85,
         commission_per_contract: float = 0.65,
+        pricing_model: str = "bsm",
     ):
         self.vol_threshold = vol_threshold
         self.trend_atr_mult = trend_atr_mult
@@ -244,6 +257,16 @@ class MultiModeStrategy:
         self.wheel_otm = wheel_otm
         self.wheel_premium_discount = wheel_premium_discount
         self.commission_per_contract = commission_per_contract
+        self.pricing_model = pricing_model.lower()
+        self._put_pricer, self._call_pricer = self._get_pricer()
+
+    def _get_pricer(self):
+        """Return (put_fn, call_fn) for the configured pricing model."""
+        pair = self._PRICERS.get(self.pricing_model)
+        if pair is None:
+            raise ValueError(f"Unknown pricing model: {self.pricing_model!r}. "
+                             f"Choose from {list(self._PRICERS)}")
+        return pair
 
     # ── sizing helpers ─────────────────────────────────────────
 
@@ -402,7 +425,7 @@ class MultiModeStrategy:
                 spot = close_i
                 if wh_state == "idle":
                     wh_strike = spot * (1.0 - self.wheel_otm)
-                    prem = bsm_put_price(spot, wh_strike, av, T_years) * 100
+                    prem = self._put_pricer(spot, wh_strike, av, T_years) * 100
                     prem = prem * self.wheel_premium_discount - self.commission_per_contract
                     if prem > 0:
                         notional = wh_strike * 100
@@ -422,7 +445,7 @@ class MultiModeStrategy:
 
                 elif wh_state == "stock_held":
                     call_strike = wh_entry_price * (1.0 + self.wheel_otm)
-                    prem = bsm_call_price(spot, call_strike, av, T_years) * 100
+                    prem = self._call_pricer(spot, call_strike, av, T_years) * 100
                     prem = prem * self.wheel_premium_discount - self.commission_per_contract
                     if prem > 0:
                         notional = wh_entry_price * 100
